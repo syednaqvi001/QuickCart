@@ -1,0 +1,77 @@
+# Dependencies
+node_modules/
+yarn.lock
+package-lock.json
+pnpm-lock.yaml
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+.cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-project
+*.sublime-workspace
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Testing
+coverage/
+.nyc_output/
+
+# Misc
+.turbo/
+dist-ssr/
+*.wasm
+.env.test
+
+# Docker
+.dockerignore
+
+# Prisma
+.env.production
+prisma/migrations/
+.prisma/
+
+# MinIO
+infra/minio/data/*
+
+# PostgreSQL
+infra/postgres/data/*
+
+# Redis
+infra/redis/data/*
+
+# RabbitMQ
+infra/rabbitmq/data/*

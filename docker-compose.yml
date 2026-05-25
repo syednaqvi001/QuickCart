@@ -1,0 +1,351 @@
+version: '3.8'
+
+services:
+  # ============================================
+  # Infrastructure Services
+  # ============================================
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:14-alpine
+    container_name: quickcart-postgres
+    environment:
+      POSTGRES_USER: ${DB_USER:-quickcart}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-quickcart123}
+      POSTGRES_DB: ${DB_NAME:-quickcart}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=en_US.UTF-8"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init_database.sql:/docker-entrypoint-initdb.d/01-init.sql
+    networks:
+      - quickcart-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-quickcart}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: quickcart-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - quickcart-network
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # RabbitMQ Message Queue
+  rabbitmq:
+    image: rabbitmq:3.11-management-alpine
+    container_name: quickcart-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+    ports:
+      - "5672:5672"      # AMQP protocol
+      - "15672:15672"    # Management UI
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - quickcart-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # MinIO Object Storage
+  minio:
+    image: minio/minio:latest
+    container_name: quickcart-minio
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    ports:
+      - "9000:9000"      # MinIO API
+      - "9001:9001"      # MinIO Console
+    volumes:
+      - minio_data:/data
+    networks:
+      - quickcart-network
+    command: minio server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================
+  # API Gateway
+  # ============================================
+
+  nginx:
+    build:
+      context: ./gateway-nginx
+      dockerfile: Dockerfile
+    container_name: quickcart-nginx
+    ports:
+      - "80:80"
+    depends_on:
+      - auth-service
+      - product-service
+      - cart-service
+      - order-service
+      - notification-service
+      - delivery-service
+    networks:
+      - quickcart-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================
+  # Microservices
+  # ============================================
+
+  # Auth Service (Port 3001)
+  auth-service:
+    build:
+      context: ./services/auth-service
+      dockerfile: Dockerfile
+    container_name: quickcart-auth-service
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3001
+      DATABASE_URL: postgresql://${DB_USER:-quickcart}:${DB_PASSWORD:-quickcart123}@postgres:5432/${DB_NAME:-quickcart}
+      JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
+      JWT_EXPIRATION: ${JWT_EXPIRATION:-15m}
+      REFRESH_TOKEN_SECRET: ${REFRESH_TOKEN_SECRET:-your-refresh-token-secret}
+      REFRESH_TOKEN_EXPIRATION: ${REFRESH_TOKEN_EXPIRATION:-7d}
+      BCRYPT_ROUNDS: ${BCRYPT_ROUNDS:-10}
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - quickcart-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Product Service (Port 3002)
+  product-service:
+    build:
+      context: ./services/product-service
+      dockerfile: Dockerfile
+    container_name: quickcart-product-service
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3002
+      DATABASE_URL: postgresql://${DB_USER:-quickcart}:${DB_PASSWORD:-quickcart123}@postgres:5432/${DB_NAME:-quickcart}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_BUCKET: ${MINIO_BUCKET:-quickcart-images}
+      MINIO_USE_SSL: ${MINIO_USE_SSL:-false}
+    ports:
+      - "3002:3002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - quickcart-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3002/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Cart Service (Port 3003)
+  cart-service:
+    build:
+      context: ./services/cart-service
+      dockerfile: Dockerfile
+    container_name: quickcart-cart-service
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3003
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
+      PRODUCT_SERVICE_URL: http://product-service:3002
+    ports:
+      - "3003:3003"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - quickcart-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3003/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Order Service (Port 3004)
+  order-service:
+    build:
+      context: ./services/order-service
+      dockerfile: Dockerfile
+    container_name: quickcart-order-service
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3004
+      DATABASE_URL: postgresql://${DB_USER:-quickcart}:${DB_PASSWORD:-quickcart123}@postgres:5432/${DB_NAME:-quickcart}
+      JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASSWORD:-guest}@rabbitmq:5672
+      CART_SERVICE_URL: http://cart-service:3003
+      PRODUCT_SERVICE_URL: http://product-service:3002
+    ports:
+      - "3004:3004"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - quickcart-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3004/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Notification Service (Port 3005)
+  notification-service:
+    build:
+      context: ./services/notification-service
+      dockerfile: Dockerfile
+    container_name: quickcart-notification-service
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3005
+      DATABASE_URL: postgresql://${DB_USER:-quickcart}:${DB_PASSWORD:-quickcart123}@postgres:5432/${DB_NAME:-quickcart}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASSWORD:-guest}@rabbitmq:5672
+      SMTP_HOST: ${SMTP_HOST:-smtp.example.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-your-email}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-your-password}
+    ports:
+      - "3005:3005"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - quickcart-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3005/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Delivery Service (Port 3006)
+  delivery-service:
+    build:
+      context: ./services/delivery-service
+      dockerfile: Dockerfile
+    container_name: quickcart-delivery-service
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3006
+      DATABASE_URL: postgresql://${DB_USER:-quickcart}:${DB_PASSWORD:-quickcart123}@postgres:5432/${DB_NAME:-quickcart}
+      JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASSWORD:-guest}@rabbitmq:5672
+    ports:
+      - "3006:3006"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - quickcart-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3006/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # pgAdmin Database Management
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: quickcart-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@quickcart.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin123}
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    networks:
+      - quickcart-network
+    restart: unless-stopped
+
+  # ============================================
+  # Frontend
+  # ============================================
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: quickcart-frontend
+    environment:
+      VITE_API_BASE_URL: http://localhost
+    ports:
+      - "3000:3000"
+    depends_on:
+      - nginx
+    networks:
+      - quickcart-network
+    restart: unless-stopped
+
+# ============================================
+# Networks
+# ============================================
+
+networks:
+  quickcart-network:
+    driver: bridge
+
+# ============================================
+# Volumes
+# ============================================
+
+volumes:
+  postgres_data:
+  redis_data:
+  rabbitmq_data:
+  minio_data:
