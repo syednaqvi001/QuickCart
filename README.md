@@ -2,6 +2,18 @@
 
 **A complete microservices-based grocery delivery platform** built with modern cloud-native technologies. Perfect for learning, portfolios, and as a foundation for real-world applications.
 
+RUNNING APPLICATION:
+<img width="1263" height="392" alt="image" src="https://github.com/user-attachments/assets/6fcf86bb-9557-424f-8b64-72bb8949bc63" />
+
+<img width="1917" height="1125" alt="image" src="https://github.com/user-attachments/assets/dfa803fc-f2c4-459a-b251-0a5b24971cef" />
+
+<img width="1919" height="1125" alt="image" src="https://github.com/user-attachments/assets/555aa32a-8d42-459c-a9c2-74a15f368205" />
+
+<img width="1919" height="1124" alt="image" src="https://github.com/user-attachments/assets/e9dddab3-0cf8-443d-8e44-c20c0857f4ad" />
+
+
+<img width="1900" height="1064" alt="image" src="https://github.com/user-attachments/assets/97283706-8591-4b10-9394-9caba0d2cd28" />
+
 ---
 
 ## 🚀 Quick Start
